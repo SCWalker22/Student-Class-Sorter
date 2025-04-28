@@ -1,0 +1,6 @@
+This is a sorter, with annealing, specifically made for sorting students into classes, but can be applied to other tasks too.
+Given a spreadsheet of students, with columns corresponding to their attributes - such as gender, academic ability, behaviour - this code will sort the students into different classes in a "fair" way.
+This will not be perfect, but is usually a good solution, and runs in around 1 minute, saving time over hand sorting the students. It has a GUI (Not my finest work, but runs), and will create a config file to auto-populate this GUI in future.
+Include are the files to analyse the performance of this code - creating graphs of Squared Error - in order to find the trade off between run time and accuracy.
+It automatically adjusts to varying class numbers and sizes, and different columns (Designed for Name, Gender, SEND, Academic Ability, Behaviour, Friend 1, Friend 2, Friend 3, Exclueded - where the last 4 columns contain names the students should or shouldn't be with).
+The basic principle of the code is to assign scores to the different options in each column, then try to equalise the sum of these scores across the different classes. The classes are initially randomised, then improved slowly.
