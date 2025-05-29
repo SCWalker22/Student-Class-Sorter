@@ -11,7 +11,8 @@ from tkinter import filedialog
 cycles = 5
 numAttempts = 10
 before = True
-after = False
+after = True
+specialWeighting = 25
 
 welcomeMessage = 'Welcome to Class Sorter V2, by Stanley Walker.\n\n\nPlease select the spreadsheet of students you would like to sort on the window that appears.\n' \
 'You will then be prompted to fill in a table, if this is not your first time, it should automatically fill, but please check this first.\n' \
@@ -60,6 +61,38 @@ def initial(numClasses, df, classCounts = []):
     df['Class'] = df.index.map(indexToGroup)
     return df
 
+def removeWhitespace(name):
+    """
+    Remove leading or trailing whitespace from a string
+
+    Args:
+        name: String
+    
+    Returns:
+        name: String, with leading and trailing whitespace removed
+    """
+    if name[0] == ' ':
+        name = name[1:]
+    if name[-1] == ' ':
+        name = name[:-1]
+    return name
+
+def removeWhitespaceDF(df, colName):
+    """
+    Remove leading or trailing whitespace from a column of a DF
+
+    Args:
+        df: Dataframe
+        colName: Name of column to remove whitespace from
+    
+    Returns:
+        df: Dataframe with whitespace removed
+    """
+    for index, row in df.iterrows():
+        name = removeWhitespace(row[colName])
+        df.loc[index, colName] = name
+    return df
+
 def normaliseNames(df, colName):
     """
     Normalises names to '{First Name} {Surname}', rather than '{Surname}, {First Name}'. Will leave unchanged if already in this format
@@ -76,15 +109,12 @@ def normaliseNames(df, colName):
             name = row[colName].split(',')
             newName = []
             for section in name:
-                if section[0] == ' ':
-                    section = section[1:]
-                if section [-1] == ' ':
-                    section = section[:-1] 
+                section = removeWhitespace(section)
                 newName.append(section)
             newNameString = ''
             for section in newName:
                 if newNameString != '':
-                    newNameString = f'{newNameString} {section}'
+                    newNameString = f'{section} {newNameString}'
                 else:
                     newNameString = section
         else:
@@ -129,7 +159,7 @@ def scoreSpecial(df, colName, options):
             score += 1*int(options)#Positive when +, negative when - in options list
     return score
 
-def scoreTotal(df, options, numClasses):
+def scoreTotal(df, options, numClasses, final = False):
     """
     Scores all columns of dataframe
 
@@ -146,7 +176,10 @@ def scoreTotal(df, options, numClasses):
         #Now decide if this column is 'special' or not
         if str(options[col]) in ['-1', '1']: # We have a 'special' column, as there is only one value, there is not a map
             for i in range(numClasses): # Score each class
-                scores[col].append(scoreSpecial(df[df['Class'] == i+1], col, options[col]))
+                if final:
+                    scores[col].append(scoreSpecial(df[df['Class'] == i+1], col, options[col]))
+                else:
+                    scores[col].append(specialWeighting*scoreSpecial(df[df['Class'] == i+1], col, options[col]))
         elif len(options[col]) > 1:
             for i in range(numClasses): # Score each class
                 scores[col].append(scoreNorm(df[df['Class'] == i+1], col, options[col]))
@@ -253,15 +286,21 @@ def maximiseSpecial(df, colName, options, numClasses):
         #             newClass = 1
             # print(df.iloc[index][colName]['Class'].squeeze())
             if pd.notna(df.iloc[index][colName]):
-                if df[df['Name'] == df.iloc[index][colName]]['Class'].squeeze() == df.iloc[index]['Class']: # Loop through student, and if the name is in their class, try to move them
-                    previousClass = df.iloc[index]['Class'] # Find their current class
-                    newClass = previousClass + 1 # Increment class by 1
-                    if newClass > numClasses: # Reset to class 1 if this number is not valid
-                        newClass = 1
-                    toSwap = df[df['Class'] == newClass].sample(n=1).index[0] # Find a random student in this class to swap with
-                    #This could be changed, but at the cost of time
-                    df.loc[toSwap, 'Class'] = previousClass # Set the students to now be in their new classes
-                    df.loc[index, 'Class']  = newClass
+                # for index, row in df.iterrows():
+                #     print(row)
+                if removeWhitespace(df.iloc[index][colName]).lower() in list(df['Name'].str.lower()):
+                    # print(df.iloc[index][colName])
+                    if df[df['Name'].str.lower() == removeWhitespace(df.iloc[index][colName]).lower()]['Class'].squeeze() == df.iloc[index]['Class']: # Loop through student, and if the name is in their class, try to move them
+                        previousClass = df.iloc[index]['Class'] # Find their current class
+                        newClass = previousClass + 1 # Increment class by 1
+                        if newClass > numClasses: # Reset to class 1 if this number is not valid
+                            newClass = 1
+                        toSwap = df[df['Class'] == newClass].sample(n=1).index[0] # Find a random student in this class to swap with
+                        #This could be changed, but at the cost of time
+                        df.loc[toSwap, 'Class'] = previousClass # Set the students to now be in their new classes
+                        df.loc[index, 'Class']  = newClass
+                else:
+                    print(f'In the column {colName}, row {index+2}, there is the name "{df.iloc[index][colName]}". This name does not exist in the "Name" column, please close the class sorter, and check the spelling - they must match exactly')
     elif str(options[colName]) == '1': # If this is a positive column, do something else, this is not yet done
         for i in range (numClasses): # Loop through Classes
             dfOriginalClass = df[df['Class'] == i+1] # Create a new DF of just students in this class
@@ -278,16 +317,29 @@ def maximiseSpecial(df, colName, options, numClasses):
     return df
 
 def getIndex(df, col, classNum, options, maxBool):
-    data = df[df['Class'] == classNum][col]
+    """
+    Find index of student with highest or lowest value in a specific class
+
+    Args:
+        df: Dataframe of students
+        col: Column from dataframe
+        classNum: Integer of class to check
+        options: Options dict
+        maxBool: Boolean: True = Max, False = Min
+    
+    Returns:
+        index of student who is either max or min in that class, according to mappings in options
+    """
+    data = df[df['Class'] == classNum][col] # Select all values from the correct column and class
     if maxBool:
-        for index, row in data.items():
-            if options[col].get(row, 0) == max(list(options[col].values())):
-                return index
-    elif not maxBool:
+        for index, row in data.items(): # Loop through values
+            if options[col].get(row, 0) == max(list(options[col].values())): # If this values is a max values
+                return index  # Return this index
+    elif not maxBool: # Do the same, but with a minimum if we want to find the min index
         for index, row in data.items():
             if options[col].get(row, 0) == min(list(options[col].values())):
                 return index
-    return 0
+    return 0 # Return 0 as a default value, should never end up here
 
 def shuffle(df, scores, options, ranges, numClasses):
     """
@@ -517,7 +569,7 @@ for i in range (numAttempts): # Start the loop for each attempt
 bestSort, minMSE = min(dfList, key = lambda x: x[1]) # Find the best sort based on the lowest MSE
 # print(bestSort)#Print this best sort, and its score
 # print(minMSE)
-print(scoreTotal(bestSort, options, numClasses))#Print the score for each column for this df
+print(scoreTotal(bestSort, options, numClasses, final=True))#Print the score for each column for this df
 #Export df to drive
 export(bestSort, f'{directory}\{outName}') # Include output name
 #Prevent window from closing until enter is pressed
